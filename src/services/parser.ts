@@ -56,6 +56,9 @@ export class Parser {
     cards = cards.concat(
       this.generateClozeCards(file, headings, deck, vault, note, globalTags)
     );
+    cards = cards.concat(
+      this.generateSummarizingCards(file, headings, deck, vault, note, globalTags)
+    );
 
     // Filter out cards that are fully inside a code block, a math block or a math inline block
     const codeBlocks = [...file.matchAll(this.regex.obsidianCodeBlock)];
@@ -293,7 +296,82 @@ export class Parser {
     return cards;
   }
 
-  private generateInlineCards(
+private generateInlineCards(
+    file: string,
+    headings: any,
+    deck: string,
+    vault: string,
+    note: string,
+    globalTags: string[] = []
+  ) {
+    const contextAware = this.settings.contextAwareMode;
+    const cards: Inlinecard[] = [];
+    const matches = [...file.matchAll(this.regex.cardsInlineStyle)];
+
+    for (const match of matches) {
+      if (
+        match[2].toLowerCase().startsWith("cards-deck") ||
+        match[2].toLowerCase().startsWith("tags")
+      ) {
+        continue;
+      }
+
+      const reversed: boolean = match[3] === this.settings.inlineSeparatorReverse;
+      let headingLevel = -1;
+      if (match[1]) {
+        headingLevel =
+          match[1].trim().length !== 0 ? match[1].trim().length : -1;
+      }
+      // Match.index - 1 because otherwise in the context there will be even match[1], i.e. the question itself
+      const context = contextAware
+        ? this.getContext(headings, match.index - 1, headingLevel)
+        : "";
+
+      const originalQuestion = match[2].trim();
+      let question = contextAware
+        ? [...context, match[2].trim()].join(
+          `${this.settings.contextSeparator}`
+        )
+        : match[2].trim();
+      let answer = match[4].trim();
+      let medias: string[] = this.getImageLinks(question);
+      medias = medias.concat(this.getImageLinks(answer));
+      medias = medias.concat(this.getAudioLinks(answer));
+      question = this.parseLine(question, vault);
+      answer = this.parseLine(answer, vault);
+
+      const initialOffset = match.index
+      const endingLine = match.index + match[0].length;
+      const tags: string[] = this.parseTags(match[5], globalTags);
+      const id: number = match[6] ? Number(match[6]) : -1;
+      const inserted: boolean = match[6] ? true : false;
+      const fields: any = { Front: question, Back: answer };
+      if (this.settings.sourceSupport) {
+        fields["Source"] = note;
+      }
+      const containsCode = this.containsCode([question, answer]);
+
+      const card = new Inlinecard(
+        id,
+        deck,
+        originalQuestion,
+        fields,
+        reversed,
+        initialOffset,
+        endingLine,
+        tags,
+        inserted,
+        medias,
+        containsCode
+      );
+      cards.push(card);
+    }
+
+    return cards;
+  }
+
+  /* @wandt0n */
+  private generateSummarizingCards(
     file: string,
     headings: any,
     deck: string,
